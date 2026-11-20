@@ -16,6 +16,9 @@
 
 bool open_for_write_would_lose_data(const Filename *fn)
 {
+#ifdef WIN32S_COMPAT
+    return false;
+#else
     WIN32_FIND_DATAW fd;
     HANDLE h;
 
@@ -52,4 +55,5 @@ bool open_for_write_would_lose_data(const Filename *fn)
         return false;
     }
     return true;
+#endif
 }

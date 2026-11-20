@@ -170,7 +170,7 @@ DECL_WINDOWS_FUNCTION(static, int, getpeername,
 DECL_WINDOWS_FUNCTION(static, int, getsockname,
                       (SOCKET, struct sockaddr FAR *, int FAR *));
 DECL_WINDOWS_FUNCTION(static, int, recv, (SOCKET, char FAR *, int, int));
-DECL_WINDOWS_FUNCTION(static, int, select,
+DECL_WINDOWS_FUNCTION(extern, int, select,
                       (int, fd_set FAR *, fd_set FAR *, fd_set FAR *,
                        const struct timeval FAR *));
 DECL_WINDOWS_FUNCTION(static, int, getsockopt,
@@ -199,6 +199,7 @@ static bool sk_startup(int hi, int lo)
 DEF_WINDOWS_FUNCTION(WSAAsyncSelect);
 DEF_WINDOWS_FUNCTION(WSAGetLastError);
 DEF_WINDOWS_FUNCTION(ioctlsocket);
+DEF_WINDOWS_FUNCTION(select);
 
 DECL_WINDOWS_FUNCTION(static, BOOL, SetHandleInformation,
                       (HANDLE, DWORD, DWORD));
@@ -1138,6 +1139,10 @@ static void try_send(NetSocket *s)
             len = bufdata.len;
         }
         len = min(len, INT_MAX);       /* WinSock send() takes an int */
+#ifdef WIN32S_COMPAT
+        /* Win32s WinSock 1.1 fails with WSAEFAULT for large buffers */
+        len = min(len, 4096);
+#endif
         nsent = p_send(s->s, data, len, urgentflag);
         noise_ultralight(NOISE_SOURCE_IOLEN, nsent);
         if (nsent <= 0) {

@@ -2,6 +2,34 @@
  * Windows implementation of SSH connection-sharing IPC setup.
  */
 
+#ifdef WIN32S_COMPAT
+/*
+ * Win32s has no named pipes or CryptProtectMemory, so stub out
+ * connection sharing entirely.
+ */
+
+#include <stdio.h>
+#include <assert.h>
+
+#include "tree234.h"
+#include "putty.h"
+#include "network.h"
+#include "ssh.h"
+
+int platform_ssh_share(const char *name, Conf *conf,
+                       Plug *downplug, Plug *upplug, Socket **sock,
+                       char **logtext, char **ds_err, char **us_err,
+                       bool can_upstream, bool can_downstream)
+{
+    return SHARE_NONE;
+}
+
+void platform_ssh_share_cleanup(const char *name)
+{
+}
+
+#else /* !WIN32S_COMPAT */
+
 #include <stdio.h>
 #include <assert.h>
 
@@ -112,3 +140,5 @@ int platform_ssh_share(const char *pi_name, Conf *conf,
 void platform_ssh_share_cleanup(const char *name)
 {
 }
+
+#endif /* WIN32S_COMPAT */

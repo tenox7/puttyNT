@@ -18,7 +18,7 @@
 #include "pageant.h"
 #include "licence.h"
 #include "pageant-rc.h"
-
+#include "storage.h"
 #include <shellapi.h>
 
 
@@ -329,6 +329,8 @@ static void keylist_update_callback(
 
     struct keylist_display_data *disp = snew(struct keylist_display_data);
     SIZE sz;
+
+    memset(&sz, 0, sizeof(sz));         /* GetTextExtentPoint32 fails on Win32s */
     disp->alg = strbuf_new();
     disp->bits = strbuf_new();
     disp->hash = strbuf_new();
@@ -831,41 +833,34 @@ static BOOL AddTrayIcon(HWND hwnd)
 static void update_sessions(void)
 {
     int num_entries;
-    HKEY hkey;
-    TCHAR buf[MAX_PATH + 1];
+    settings_e *handle;
     strbuf *sb;
 
-    int index_key, index_menu;
+    int index_menu;
 
     if (!putty_path)
         return;
 
-    if (ERROR_SUCCESS != RegOpenKey(HKEY_CURRENT_USER, PUTTY_REGKEY, &hkey))
-        return;
-
     for (num_entries = GetMenuItemCount(session_menu);
-        num_entries > initial_menuitems_count;
-        num_entries--)
+         num_entries > initial_menuitems_count;
+         num_entries--)
         RemoveMenu(session_menu, 0, MF_BYPOSITION);
 
-    index_key = 0;
     index_menu = 0;
 
     sb = strbuf_new();
-    while (ERROR_SUCCESS == RegEnumKey(hkey, index_key, buf, MAX_PATH)) {
-        if (strcmp(buf, PUTTY_DEFAULT) != 0) {
+    if ((handle = enum_settings_start()) != NULL) {
+        while (enum_settings_next(handle, sb)) {
+            if (strcmp(sb->s, DEFAULT_SESSION_NAME) != 0) {
+                InsertMenu(session_menu, index_menu, MF_BYPOSITION | MF_STRING,
+                           (index_menu * 16) + IDM_SESSIONS_BASE, sb->s);
+                index_menu++;
+            }
             strbuf_clear(sb);
-            unescape_registry_key(buf, sb);
-
-            InsertMenu(session_menu, index_menu, MF_BYPOSITION | MF_STRING,
-                       (index_menu * 16) + IDM_SESSIONS_BASE, sb->s);
-            index_menu++;
         }
-        index_key++;
+        enum_settings_finish(handle);
     }
     strbuf_free(sb);
-
-    RegCloseKey(hkey);
 
     if (index_menu == 0)
         InsertMenu(session_menu, index_menu,
@@ -881,6 +876,10 @@ static void update_sessions(void)
  */
 PSID get_default_sid(void)
 {
+#ifdef WIN32S_COMPAT
+    /* Win32s has no security descriptors to derive a SID from */
+    return NULL;
+#else
     HANDLE proc = NULL;
     DWORD sidlen;
     PSECURITY_DESCRIPTOR psd = NULL;
@@ -914,6 +913,7 @@ PSID get_default_sid(void)
         sfree(copy);
 
     return ret;
+#endif /* !WIN32S_COMPAT */
 }
 
 struct WmCopydataTransaction {
@@ -943,7 +943,13 @@ static void wm_copydata_got_response(
     PUT_32BIT_MSB_FIRST(wmct.length, response.len);
     memcpy(wmct.body, response.ptr, response.len);
 
+#ifdef WIN32S_COMPAT
+    /* Nothing to signal: the request was handled synchronously by the
+     * caller, above */
+    (void) 0;
+#else
     SetEvent(wmct.ev_reply_ready);
+#endif
 }
 
 static bool ask_passphrase_common(PageantClientDialogId *dlgid,
@@ -1046,6 +1052,7 @@ static char *answer_filemapping_message(const char *mapname)
     debug(("maphandle = %p\n", maphandle));
 #endif
 
+#ifndef WIN32S_COMPAT
     if ((expectedsid = get_user_sid()) == NULL) {
         err = dupstr("unable to get user SID");
         goto cleanup;
@@ -1067,6 +1074,14 @@ static char *answer_filemapping_message(const char *mapname)
         err = dupstr("wrong owning SID of file mapping");
         goto cleanup;
     }
+#else
+    /*
+     * Win32s implements no process security model at all: any process
+     * can already open the mapping and send this message. The check is
+     * meaningless there, and refusing every caller would make the
+     * agent useless, so skip it.
+     */
+#endif /* WIN32S_COMPAT */
 
     mapaddr = MapViewOfFile(maphandle, FILE_MAP_WRITE, 0, 0, 0);
     if (!mapaddr) {
@@ -1125,8 +1140,15 @@ static char *answer_filemapping_message(const char *mapname)
         *wmct.body = SSH_AGENT_FAILURE;
     } else {
         wmct.bodylen = msglen;
+#ifdef WIN32S_COMPAT
+        /* No threads on Win32s: handle the request synchronously.
+         * The window receives WM_COPYDATA in its own message; the
+         * reply is written straight into the file mapping below. */
+        wm_copydata_got_msg(NULL);
+#else
         SetEvent(wmct.ev_msg_ready);
         WaitForSingleObject(wmct.ev_reply_ready, INFINITE);
+#endif
     }
 
   cleanup:
@@ -1337,6 +1359,7 @@ static LRESULT CALLBACK wm_copydata_WndProc(HWND hwnd, UINT message,
     return DefWindowProc(hwnd, message, wParam, lParam);
 }
 
+#ifndef WIN32S_COMPAT
 static DWORD WINAPI wm_copydata_threadfunc(void *param)
 {
     HINSTANCE inst = *(HINSTANCE *)param;
@@ -1355,6 +1378,7 @@ static DWORD WINAPI wm_copydata_threadfunc(void *param)
 
     return 0;
 }
+#endif /* !WIN32S_COMPAT */
 
 /*
  * Fork and Exec the command in cmdline. [DBW]
@@ -1661,6 +1685,21 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         wmcpc.vt = &wmcpc_vtable;
         wmcpc.suppress_logging = true;
         pageant_register_client(&wmcpc);
+#ifdef WIN32S_COMPAT
+        /*
+         * No threads on Win32s. Create the hidden WM_COPYDATA
+         * window in this thread; messages arrive through the same
+         * PeekMessage/DispatchMessage loop as everything else.
+         */
+        {
+            HWND ipchwnd = CreateWindow(IPCCLASSNAME, IPCWINTITLE,
+                                        WS_OVERLAPPEDWINDOW | WS_VSCROLL,
+                                        CW_USEDEFAULT, CW_USEDEFAULT,
+                                        100, 100, NULL, NULL, inst, NULL);
+            if (ipchwnd)
+                ShowWindow(ipchwnd, SW_HIDE);
+        }
+#else
         wmct.ev_msg_ready = CreateEvent(NULL, false, false, NULL);
         wmct.ev_reply_ready = CreateEvent(NULL, false, false, NULL);
         hThread = CreateThread(NULL, 0, wm_copydata_threadfunc,
@@ -1668,6 +1707,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         if (hThread)
             CloseHandle(hThread); /* we don't need the thread handle */
         add_handle_wait(wmct.ev_msg_ready, wm_copydata_got_msg, NULL);
+#endif /* WIN32S_COMPAT */
     }
 
     /*
@@ -1778,6 +1818,17 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     while (true) {
         int n;
 
+#ifdef WIN32S_COMPAT
+        /*
+         * No MsgWaitForMultipleObjects on Win32s, and no threads
+         * either, so there are no handles to wait for. Just wait for
+         * a message or a timer.
+         */
+        if (!toplevel_callback_pending() &&
+            !sw_PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE)) {
+            WaitMessage();
+        }
+#else
         HandleWaitList *hwl = get_handle_wait_list();
 
         DWORD timeout = toplevel_callback_pending() ? 0 : INFINITE;
@@ -1787,6 +1838,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         if ((unsigned)(n - WAIT_OBJECT_0) < (unsigned)hwl->nhandles)
             handle_wait_activate(hwl, n - WAIT_OBJECT_0);
         handle_wait_list_free(hwl);
+#endif /* WIN32S_COMPAT */
 
         while (sw_PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT)

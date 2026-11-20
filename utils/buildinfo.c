@@ -149,6 +149,9 @@ char *buildinfo(const char *newline)
 #endif
     BinarySink_put_fmt(BinarySink_UPCAST(buf), "%sBuild option: NO_IPV6", newline);
     BinarySink_put_fmt(BinarySink_UPCAST(buf), "%sBuild option: NO_GSSAPI", newline);
+#ifdef WIN32S_COMPAT
+    BinarySink_put_fmt(BinarySink_UPCAST(buf), "%sBuild option: WIN32S_COMPAT", newline);
+#endif
 #ifdef STATIC_GSSAPI
     BinarySink_put_fmt(BinarySink_UPCAST(buf), "%sBuild option: STATIC_GSSAPI", newline);
 #endif

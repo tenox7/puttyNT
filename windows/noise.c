@@ -100,8 +100,6 @@ void noise_regular(void)
     MEMORYSTATUS memstat;
     FILETIME times[4];
 
-    w = GetForegroundWindow();
-    random_add_noise(NOISE_SOURCE_FGWINDOW, &w, sizeof(w));
     w = GetCapture();
     random_add_noise(NOISE_SOURCE_CAPTURE, &w, sizeof(w));
     w = GetClipboardOwner();
@@ -112,7 +110,13 @@ void noise_regular(void)
     GetCursorPos(&pt);
     random_add_noise(NOISE_SOURCE_CURSORPOS, &pt, sizeof(pt));
 
+#ifdef WIN32S_COMPAT
+    memset(&memstat, 0, sizeof(memstat));
+#else
+    w = GetForegroundWindow();
+    random_add_noise(NOISE_SOURCE_FGWINDOW, &w, sizeof(w));
     GlobalMemoryStatus(&memstat);
+#endif
     random_add_noise(NOISE_SOURCE_MEMINFO, &memstat, sizeof(memstat));
 
     GetThreadTimes(GetCurrentThread(), times, times + 1, times + 2,

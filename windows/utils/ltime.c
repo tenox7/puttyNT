@@ -13,7 +13,11 @@ struct tm ltime(void)
 
     memset(&tm, 0, sizeof(tm));        /* in case there are any other fields */
 
+#ifdef WIN32S_COMPAT
+    GetSystemTime(&st);
+#else
     GetLocalTime(&st);
+#endif
     tm.tm_sec=st.wSecond;
     tm.tm_min=st.wMinute;
     tm.tm_hour=st.wHour;

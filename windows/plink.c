@@ -204,6 +204,11 @@ static void version(void)
 size_t stdin_gotdata(struct handle *h, const void *data, size_t len, int err)
 {
     if (err) {
+#ifdef WIN32S_COMPAT
+        /* FormatMessage is not supported on Win32s */
+        fprintf(stderr, "Unable to read from standard input: %s\n",
+                win_strerror(err));
+#else
         char buf[4096];
         FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err, 0,
                       buf, lenof(buf), NULL);
@@ -211,6 +216,7 @@ size_t stdin_gotdata(struct handle *h, const void *data, size_t len, int err)
         if (buf[strlen(buf)-1] == '\n')
             buf[strlen(buf)-1] = '\0';
         fprintf(stderr, "Unable to read from standard input: %s\n", buf);
+#endif
         cleanup_exit(0);
     }
 
@@ -236,6 +242,12 @@ void stdouterr_sent(struct handle *h, size_t new_backlog, int err, bool close)
     }
 
     if (err) {
+#ifdef WIN32S_COMPAT
+        /* FormatMessage is not supported on Win32s */
+        fprintf(stderr, "Unable to write to standard %s: %s\n",
+                (h == stdout_handle ? "output" : "error"),
+                win_strerror(err));
+#else
         char buf[4096];
         FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err, 0,
                       buf, lenof(buf), NULL);
@@ -244,6 +256,7 @@ void stdouterr_sent(struct handle *h, size_t new_backlog, int err, bool close)
             buf[strlen(buf)-1] = '\0';
         fprintf(stderr, "Unable to write to standard %s: %s\n",
                 (h == stdout_handle ? "output" : "error"), buf);
+#endif
         cleanup_exit(0);
     }
 

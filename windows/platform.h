@@ -291,6 +291,9 @@ DECL_WINDOWS_FUNCTION(extern, int, WSAAsyncSelect,
                       (SOCKET, HWND, u_int, LONG));
 DECL_WINDOWS_FUNCTION(extern, int, WSAGetLastError, (void));
 DECL_WINDOWS_FUNCTION(extern, int, ioctlsocket, (SOCKET, LONG, ULONG FAR *));
+DECL_WINDOWS_FUNCTION(extern, int, select,
+                      (int, fd_set *, fd_set *, fd_set *,
+                       const struct timeval *));
 
 /*
  * Implemented differently depending on the client of network.c, and
@@ -306,6 +309,7 @@ void done_with_socket(SOCKET skt);
 void winselgui_set_hwnd(HWND hwnd);
 void winselgui_clear_hwnd(void);
 void winselgui_response(UINT message, WPARAM wParam, LPARAM lParam);
+SOCKET winselcli_unique_socket(void);
 
 void winselcli_setup(void);
 bool winselcli_polling(void);

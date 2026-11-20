@@ -22,7 +22,17 @@
 #error Do not compile this code base with NDEBUG defined!
 #endif
 
+/*
+ * Which platform are we building for? The NT port and the Win32s
+ * port are separate operating systems with different APIs, so each
+ * has its own answers to the questions in a config header. The
+ * Makefile defines WIN32S_COMPAT when building the Win32s flavour.
+ */
+#if defined(WIN32S_COMPAT)
+#include "w32sconfig.h"
+#else
 #include "ntconfig.h"
+#endif
 
 #include <stddef.h>
 #include <stdio.h>                     /* for __MINGW_PRINTF_FORMAT */

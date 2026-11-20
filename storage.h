@@ -8,6 +8,19 @@
 
 #include "defs.h"
 
+/*
+ * The name of the default saved session.
+ *
+ * On Win32s the saved sessions are files on a FAT filesystem, whose
+ * names have to fit in the 8.3 format, so the default session gets
+ * a name short enough to fit.
+ */
+#ifdef WIN32S_COMPAT
+#define DEFAULT_SESSION_NAME "DEFAULT"
+#else
+#define DEFAULT_SESSION_NAME "Default Settings"
+#endif
+
 /* ----------------------------------------------------------------------
  * Functions to save and restore PuTTY sessions. Note that this is
  * only the low-level code to do the reading and writing. The

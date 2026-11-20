@@ -9,6 +9,7 @@
 #include "ssh.h"
 #include "security-api.h"
 
+#ifndef WINSFTP_BUILD
 SeatPromptResult filexfer_get_userpass_input(Seat *seat, prompts_t *p)
 {
     /* The file transfer tools don't support Restart Session, so we
@@ -29,6 +30,7 @@ void platform_get_x11_auth(struct X11Display *display, Conf *conf)
     /* Do nothing, therefore no auth. */
 }
 const bool platform_uses_x11_unix_by_default = true;
+#endif /* !WINSFTP_BUILD */
 
 /* ----------------------------------------------------------------------
  * File access abstraction.
@@ -43,6 +45,11 @@ char *psftp_lcd(char *dir)
     char *ret = NULL;
 
     if (!SetCurrentDirectory(dir)) {
+#ifdef WIN32S_COMPAT
+        /* FormatMessage is not supported on Win32s */
+        ret = dupprintf("unable to change directory: %s",
+                        win_strerror(GetLastError()));
+#else
         LPVOID message;
         int i;
         FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER |
@@ -54,6 +61,7 @@ char *psftp_lcd(char *dir)
         i = strcspn((char *)message, "\n");
         ret = dupprintf("%.*s", i, (LPCTSTR)message);
         LocalFree(message);
+#endif
     }
 
     return ret;
@@ -472,6 +480,7 @@ struct winsftp_cliloop_ctx {
     HANDLE other_event;
     int toret;
 };
+#ifndef WINSFTP_BUILD
 static bool winsftp_cliloop_pre(void *vctx, const HANDLE **extra_handles,
                                 size_t *n_extra_handles)
 {
@@ -603,3 +612,5 @@ int main(int argc, char *argv[])
 
     return ret;
 }
+
+#endif /* !WINSFTP_BUILD */

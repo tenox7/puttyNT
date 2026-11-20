@@ -550,6 +550,30 @@ static reverse_mapping *get_reverse_mapping(int codepage)
     return make_reverse_mapping_inner(codepage, mapping);
 }
 
+/*
+ * The Win32s runtime carries only stubs for GetACP and GetOEMCP,
+ * which return no usable code page. Fall back to the usual US English
+ * values (Windows 3.x on US English systems uses 1252 for ANSI and
+ * 437 for OEM).
+ */
+static int sys_acp(void)
+{
+#ifdef WIN32S_COMPAT
+    return 1252;
+#else
+    return GetACP();
+#endif
+}
+
+static int sys_oemcp(void)
+{
+#ifdef WIN32S_COMPAT
+    return 437;
+#else
+    return GetOEMCP();
+#endif
+}
+
 void init_ucs(Conf *conf, struct unicode_data *ucsdata)
 {
     int i;
@@ -570,7 +594,7 @@ void init_ucs(Conf *conf, struct unicode_data *ucsdata)
         ucsdata->font_codepage = 437;
         ucsdata->dbcs_screenfont = false;
         if (ucsdata->line_codepage <= 0)
-            ucsdata->line_codepage = GetACP();
+            ucsdata->line_codepage = sys_acp();
     } else if (ucsdata->line_codepage <= 0)
         ucsdata->line_codepage = ucsdata->font_codepage;
 
@@ -601,9 +625,18 @@ void init_ucs(Conf *conf, struct unicode_data *ucsdata)
         get_unitab(437, ucsdata->unitab_scoacs, 1);
 
     /* Collect line set ucs table */
+#ifdef WIN32S_COMPAT
+    /* Win32s: force direct-to-font when the line codepage matches
+     * the font codepage, or the font codepage is unknown (0).
+     * MultiByteToWideChar and ExtTextOutW are not reliable on
+     * Win32s, so we pass raw bytes through to the ANSI font. */
+    if (ucsdata->line_codepage == ucsdata->font_codepage ||
+        ucsdata->font_codepage == 0) {
+#else
     if (ucsdata->line_codepage == ucsdata->font_codepage &&
         (ucsdata->dbcs_screenfont ||
          vtmode == VT_POORMAN || ucsdata->font_codepage==0)) {
+#endif
 
         /* For DBCS and POOR fonts force direct to font */
         used_dtf = true;
@@ -1148,9 +1181,9 @@ int decode_codepage(const char *cp_name)
         codepage = atoi(d);            /* CP999 or IBM999 */
 
     if (codepage == CP_ACP)
-        codepage = GetACP();
+        codepage = sys_acp();
     if (codepage == CP_OEMCP)
-        codepage = GetOEMCP();
+        codepage = sys_oemcp();
     if (codepage > 65535)
         codepage = -2;
 
@@ -1238,9 +1271,9 @@ void get_unitab(int codepage, wchar_t *unitab, int ftype)
     }
 
     if (codepage == CP_ACP)
-        codepage = GetACP();
+        codepage = sys_acp();
     else if (codepage == CP_OEMCP)
-        codepage = GetOEMCP();
+        codepage = sys_oemcp();
 
     if (codepage > 0 && codepage < 65536) {
         for (i = 0; i < max; i++) {

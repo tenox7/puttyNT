@@ -19,6 +19,9 @@ DEF_WINDOWS_FUNCTION(CryptProtectMemory);
 
 bool got_crypt(void)
 {
+#ifdef WIN32S_COMPAT
+    return false;
+#else
     static bool attempted = false;
     static bool successful;
     static HMODULE crypt;
@@ -30,6 +33,7 @@ bool got_crypt(void)
             GET_WINDOWS_FUNCTION_NO_TYPECHECK(crypt, CryptProtectMemory);
     }
     return successful;
+#endif
 }
 
 char *capi_obfuscate_string(const char *realname)

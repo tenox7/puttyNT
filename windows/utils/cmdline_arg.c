@@ -83,7 +83,11 @@ CmdlineArgList *cmdline_arg_list_from_GetCommandLineW(void)
     int argc;
     size_t i;
 
+#ifdef WIN32S_COMPAT
+    list->cmdline = dup_mb_to_wc(CP_ACP, GetCommandLineA());
+#else
     list->cmdline = GetCommandLineW();
+#endif
 
     split_into_argv_w(list->cmdline, true,
                       &argc, &list->argv, &list->argstart);

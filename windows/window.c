@@ -552,6 +552,18 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
             exwinmode |= WS_EX_CLIENTEDGE;
 #endif
 
+#if defined WIN32S_COMPAT
+        /* Win32s has no Unicode window creation or message handling:
+         * use the ANSI window and skip the Unicode attempt entirely. */
+        unicode_window = false;
+        sw_PeekMessage = PeekMessageA;
+        sw_DispatchMessage = DispatchMessageA;
+        sw_DefWindowProc = DefWindowProcA;
+        wgs->term_hwnd = CreateWindowExA(
+            exwinmode, terminal_window_class_a(), appname,
+            winmode, CW_USEDEFAULT, CW_USEDEFAULT,
+            guess_width, guess_height, NULL, NULL, inst, NULL);
+#else
         unicode_window = true;
         sw_PeekMessage = PeekMessageW;
         sw_DispatchMessage = DispatchMessageW;
@@ -573,6 +585,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
                 winmode, CW_USEDEFAULT, CW_USEDEFAULT,
                 guess_width, guess_height, NULL, NULL, inst, NULL);
         }
+#endif
 
         if (!wgs->term_hwnd) {
             modalfatalbox("Unable to create terminal window: %s",
@@ -765,6 +778,26 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
     lastpoll = GETTICKCOUNT();
     while (1) {
+#ifdef WIN32S_COMPAT
+        /*
+         * Win32s message loop: no MsgWaitForMultipleObjects (not
+         * available), and no threads means nothing else can be
+         * waiting on a handle either. All I/O arrives as window
+         * messages via WSAAsyncSelect / WM_TIMER.
+         */
+        /* In case WinSock missed a network event (see sk_poll) */
+        if (GETTICKCOUNT() - lastpoll >= SK_POLL_INTERVAL) {
+            sk_poll(false);
+            lastpoll = GETTICKCOUNT();
+        }
+
+        if (!toplevel_callback_pending() &&
+            !sw_PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE)) {
+            term_set_focus(wgs->term,
+                           GetForegroundWindow() == wgs->term_hwnd);
+            WaitMessage();
+        }
+#else
         int n;
         DWORD timeout;
         HandleWaitList *hwl;
@@ -809,6 +842,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         if ((unsigned)(n - WAIT_OBJECT_0) < (unsigned)hwl->nhandles)
             handle_wait_activate(hwl, n - WAIT_OBJECT_0);
         handle_wait_list_free(hwl);
+#endif /* WIN32S_COMPAT */
 
         while (sw_PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
             HWND logbox;
@@ -983,6 +1017,12 @@ void cleanup_exit(int code)
     while (wgslisthead.next != &wgslisthead) {
         WinGuiSeat *wgs = container_of(
             wgslisthead.next, WinGuiSeat, wgslistnode);
+#ifdef WIN32S_COMPAT
+        if (wgs->term_hwnd) {
+            DestroyWindow(wgs->term_hwnd);
+            wgs->term_hwnd = NULL;
+        }
+#endif
         wgs_cleanup(wgs);
     }
     sk_cleanup();
@@ -1315,7 +1355,11 @@ static int charset_codepage(int charset)
 
     /* !!! Yes the next line is right */
     if (charset == OEM_CHARSET)
+#ifdef WIN32S_COMPAT
+        return 437;     /* the Win32s GetOEMCP stub returns no code page */
+#else
         return GetOEMCP();
+#endif
     for (i = 0; i < (int)lenof(map); i++)
         if (map[i].charset == charset)
             return map[i].codepage;
@@ -1397,10 +1441,19 @@ static void init_fonts(WinGuiSeat *wgs, int pick_width, int pick_height)
 
     SelectObject(hdc, wgs->fonts[FONT_NORMAL]);
     GetTextMetrics(hdc, &tm);
+#ifdef WIN32S_COMPAT
+    /*
+     * Win32s: skip GetOutlineTextMetrics -- on Win32s it can overflow
+     * the output buffer with font name strings, corrupting adjacent
+     * stack variables (including tm). Use the fallback calculation.
+     */
+    wgs->font_strikethrough_y = tm.tmAscent - (tm.tmAscent * 3 / 8);
+#else
     if (GetOutlineTextMetrics(hdc, sizeof(otm), &otm))
         wgs->font_strikethrough_y = tm.tmAscent - otm.otmsStrikeoutPosition;
     else
         wgs->font_strikethrough_y = tm.tmAscent - (tm.tmAscent * 3 / 8);
+#endif
 
     GetObject(wgs->fonts[FONT_NORMAL], sizeof(LOGFONT), &wgs->lfont);
 
@@ -1444,6 +1497,14 @@ static void init_fonts(WinGuiSeat *wgs, int pick_width, int pick_height)
      * go all the way across the character cell, we only search
      * down a single column of the bitmap, half way across.)
      */
+#ifdef WIN32S_COMPAT
+    /*
+     * Win32s: skip the bitmap-based underline detection (the
+     * CreateCompatibleDC / GetPixel probe hangs on Win32s).
+     * Always draw underlines by hand.
+     */
+    wgs->und_mode = UND_LINE;
+#else
     {
         HDC und_dc;
         HBITMAP und_bm, und_oldbm;
@@ -1476,6 +1537,7 @@ static void init_fonts(WinGuiSeat *wgs, int pick_width, int pick_height)
             wgs->fonts[FONT_UNDERLINE] = 0;
         }
     }
+#endif /* WIN32S_COMPAT */
 
     if (wgs->bold_font_mode == BOLD_FONT) {
         f(FONT_BOLD, font->charset, fw_bold, false);
@@ -4420,6 +4482,26 @@ static int TranslateKey(WinGuiSeat *wgs, UINT message, WPARAM wParam,
         /* XXX how do we know what the max size of the keys array should
          * be is? There's indication on MS' website of an Inquire/InquireEx
          * functioning returning a KBINFO structure which tells us. */
+#ifdef WIN32S_COMPAT
+        /*
+         * Win32s: filter key-up events -- ToAscii returns the
+         * character again on key release, which would produce a
+         * duplicate.
+         */
+        if (message == WM_KEYUP || message == WM_SYSKEYUP)
+            return 0;
+        {
+            WORD keys[3];
+            r = ToAscii(wParam, scan, keystate, keys, 0);
+            if (r > 0) {
+                /* Return the raw bytes directly; the caller sends them
+                 * with term_keyinput in the terminal's line codepage. */
+                for (i = 0; i < r; i++)
+                    *p++ = (unsigned char)keys[i];
+                return p - output;
+            }
+        }
+#else
         r = ToUnicode(wParam, scan, keystate, keys_unicode,
                       lenof(keys_unicode), 0);
         if (r > 0) {
@@ -4492,6 +4574,7 @@ static int TranslateKey(WinGuiSeat *wgs, UINT message, WPARAM wParam,
 
             return p - output;
         }
+#endif /* WIN32S_COMPAT */
     }
 
     /*
@@ -5174,6 +5257,11 @@ static void process_clipdata(WinGuiSeat *wgs, HGLOBAL clipdata, bool unicode)
 static void wintw_clip_request_paste(TermWin *tw, int clipboard)
 {
     WinGuiSeat *wgs = container_of(tw, WinGuiSeat, termwin);
+#ifdef WIN32S_COMPAT
+    /* Win32s has no threads: just read the clipboard synchronously */
+    clipboard_read_threadfunc(wgs->term_hwnd);
+    return;
+#else
     DWORD in_threadid;
     HANDLE hThread;
     assert(clipboard == CLIP_SYSTEM);
@@ -5199,6 +5287,7 @@ static void wintw_clip_request_paste(TermWin *tw, int clipboard)
                            wgs->term_hwnd, 0, &in_threadid);
     if (hThread)
         CloseHandle(hThread);          /* we don't need the thread handle */
+#endif
 }
 
 /*

@@ -52,6 +52,10 @@ const char *win_strerror(int error)
 
         es = snew(struct errstring);
         es->error = error;
+#ifdef WIN32S_COMPAT
+        /* FormatMessage is not supported on Win32s */
+        sprintf(msgtext, "(error message not available on Win32s)");
+#else
         if (!FormatMessage((FORMAT_MESSAGE_FROM_SYSTEM |
                             FORMAT_MESSAGE_IGNORE_INSERTS), NULL, error,
                            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
@@ -64,6 +68,7 @@ const char *win_strerror(int error)
             if (len > 0 && msgtext[len-1] == '\n')
                 msgtext[len-1] = '\0';
         }
+#endif
         es->text = dupprintf("Error %d: %s", error, msgtext);
         add234(errstrings, es);
     }

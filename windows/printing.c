@@ -39,7 +39,9 @@ static void init_winfuncs(void)
          * Nevertheless, we load spoolss.dll ourselves using our safe
          * loading method, against the possibility that winspool.drv
          * later loads it unsafely. */
+#ifndef WIN32S_COMPAT
         (void) load_system32_dll("spoolss.dll");
+#endif
         GET_WINDOWS_FUNCTION_PP(winspool_module, EnumPrinters);
         GET_WINDOWS_FUNCTION_PP(winspool_module, OpenPrinter);
         GET_WINDOWS_FUNCTION_PP(winspool_module, ClosePrinter);
@@ -58,6 +60,10 @@ static bool printer_add_enum(int param, DWORD level, char **buffer,
     DWORD needed = 0, nprinters = 0;
 
     init_winfuncs();
+
+    if (!p_EnumPrinters)
+        /* No spooler (Win32s): no printers to list */
+        return false;
 
     *buffer = sresize(*buffer, offset+512, char);
 
@@ -142,6 +148,9 @@ printer_job *printer_start_job(char *printer)
     init_winfuncs();
 
     pj->hprinter = NULL;
+    if (!p_OpenPrinter || !p_StartDocPrinter || !p_StartPagePrinter
+        || !p_EndPagePrinter || !p_EndDocPrinter || !p_ClosePrinter)
+        goto error;
     if (!p_OpenPrinter(printer, &pj->hprinter, NULL))
         goto error;
 
@@ -177,7 +186,8 @@ void printer_job_data(printer_job *pj, const void *data, size_t len)
     if (!pj)
         return;
 
-    p_WritePrinter(pj->hprinter, (void *)data, len, &written);
+    if (p_WritePrinter)
+        p_WritePrinter(pj->hprinter, (void *)data, len, &written);
 }
 
 void printer_finish_job(printer_job *pj)
@@ -185,8 +195,11 @@ void printer_finish_job(printer_job *pj)
     if (!pj)
         return;
 
-    p_EndPagePrinter(pj->hprinter);
-    p_EndDocPrinter(pj->hprinter);
-    p_ClosePrinter(pj->hprinter);
+    if (p_EndPagePrinter)
+        p_EndPagePrinter(pj->hprinter);
+    if (p_EndDocPrinter)
+        p_EndDocPrinter(pj->hprinter);
+    if (p_ClosePrinter)
+        p_ClosePrinter(pj->hprinter);
     sfree(pj);
 }

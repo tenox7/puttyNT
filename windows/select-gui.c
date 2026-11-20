@@ -11,6 +11,25 @@ static void wm_netevent_callback(void *vctx);
 
 static HWND winsel_hwnd = NULL;
 static tree234 *moribund_sockets = NULL;
+static tree234 *cli_sockets = NULL;
+static int socket_cmp(void *av, void *bv)
+{
+    uintptr_t a = (uintptr_t)av, b = (uintptr_t)bv;
+    return a < b ? -1 : a > b ? +1 : 0;
+}
+
+/* Return the one live socket, for front ends that drive the network
+ * with WinSock's select() directly (winsftp.exe). INVALID_SOCKET when
+ * none, or more than one. */
+SOCKET winselcli_unique_socket(void)
+{
+    uintptr_t sk;
+    if (!cli_sockets)
+        return INVALID_SOCKET;
+    assert(count234(cli_sockets) <= 1);
+    sk = (uintptr_t)index234(cli_sockets, 0);
+    return sk ? (SOCKET)sk : INVALID_SOCKET;
+}
 
 static int moribund_socket_cmp(void *av, void *bv)
 {
@@ -31,6 +50,15 @@ void winselgui_clear_hwnd(void)
 const char *do_select(SOCKET skt, bool enable)
 {
     int msg, events;
+
+    if (enable) {
+        if (!cli_sockets)
+            cli_sockets = newtree234(socket_cmp);
+        add234(cli_sockets, (void *)(uintptr_t)skt);
+    } else {
+        if (cli_sockets)
+            del234(cli_sockets, (void *)(uintptr_t)skt);
+    }
 
     if (!winsel_hwnd) {
         /*

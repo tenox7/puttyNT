@@ -2010,10 +2010,18 @@ bool winctrl_handle_command(struct dlgparam *dp, UINT msg,
             Filename *fn_prev = NULL;
             Filename *fn;
             if (!ctrl->fileselect.just_button) {
+#ifdef WIN32S_COMPAT
+                /* Win32s has no Unicode dialog item access */
+                char *text = GetDlgItemText_alloc(dp->hwnd, c->base_id+1);
+                if (*text)
+                    fn_prev = filename_from_str(text);
+                sfree(text);
+#else
                 wchar_t *text = GetDlgItemTextW_alloc(dp->hwnd, c->base_id+1);
                 if (*text)
                     fn_prev = filename_from_wstr(text);
                 sfree(text);
+#endif
             }
 
             fn = request_file(
@@ -2025,8 +2033,13 @@ bool winctrl_handle_command(struct dlgparam *dp, UINT msg,
 
             if (fn) {
                 if (!ctrl->fileselect.just_button) {
+#ifdef WIN32S_COMPAT
+                    SetDlgItemText(dp->hwnd, c->base_id + 1,
+                                   filename_to_str(fn));
+#else
                     SetDlgItemTextW(dp->hwnd, c->base_id + 1,
                                     filename_to_wstr(fn));
+#endif
                     ctrl->handler(ctrl, dp, dp->data, EVENT_VALCHANGE);
                 } else {
                     assert(!c->data);
@@ -2191,9 +2204,13 @@ void dlg_editbox_set_utf8(dlgcontrol *ctrl, dlgparam *dp, char const *text)
     struct winctrl *c = dlg_findbyctrl(dp, ctrl);
     wchar_t *wtext;
     assert(c && c->ctrl->type == CTRL_EDITBOX);
+#ifdef WIN32S_COMPAT
+    SetDlgItemText(dp->hwnd, c->base_id+1, text);
+#else
     wtext = dup_mb_to_wc(CP_UTF8, text);
     SetDlgItemTextW(dp->hwnd, c->base_id+1, wtext);
     sfree(wtext);
+#endif
 }
 
 char *dlg_editbox_get(dlgcontrol *ctrl, dlgparam *dp)
@@ -2209,10 +2226,14 @@ char *dlg_editbox_get_utf8(dlgcontrol *ctrl, dlgparam *dp)
     wchar_t *wtext;
     char *text;
     assert(c && c->ctrl->type == CTRL_EDITBOX);
+#ifdef WIN32S_COMPAT
+    return GetDlgItemText_alloc(dp->hwnd, c->base_id+1);
+#else
     wtext = GetDlgItemTextW_alloc(dp->hwnd, c->base_id+1);
     text = dup_wc_to_mb(CP_UTF8, wtext, "");
     sfree(wtext);
     return text;
+#endif
 }
 
 void dlg_editbox_select_range(dlgcontrol *ctrl, dlgparam *dp,
@@ -2398,7 +2419,11 @@ void dlg_filesel_set(dlgcontrol *ctrl, dlgparam *dp, Filename *fn)
     assert(c);
     assert(c->ctrl->type == CTRL_FILESELECT);
     assert(!c->ctrl->fileselect.just_button);
+#ifdef WIN32S_COMPAT
+    SetDlgItemText(dp->hwnd, c->base_id+1, fn->cpath);
+#else
     SetDlgItemTextW(dp->hwnd, c->base_id+1, fn->wpath);
+#endif
 }
 
 Filename *dlg_filesel_get(dlgcontrol *ctrl, dlgparam *dp)
@@ -2407,8 +2432,13 @@ Filename *dlg_filesel_get(dlgcontrol *ctrl, dlgparam *dp)
     assert(c);
     assert(c->ctrl->type == CTRL_FILESELECT);
     if (!c->ctrl->fileselect.just_button) {
+#ifdef WIN32S_COMPAT
+        char *tmp = GetDlgItemText_alloc(dp->hwnd, c->base_id+1);
+        Filename *ret = filename_from_str(tmp);
+#else
         wchar_t *tmp = GetDlgItemTextW_alloc(dp->hwnd, c->base_id+1);
         Filename *ret = filename_from_wstr(tmp);
+#endif
         sfree(tmp);
         return ret;
     } else {

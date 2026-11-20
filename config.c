@@ -787,7 +787,7 @@ static bool load_selected_session(
         dlg_beep(dlg);
         return false;
     }
-    isdef = !strcmp(ssd->sesslist.sessions[i], "Default Settings");
+    isdef = !strcmp(ssd->sesslist.sessions[i], DEFAULT_SESSION_NAME);
     load_settings(ssd->sesslist.sessions[i], conf);
     sfree(ssd->savedsession);
     ssd->savedsession = dupstr(isdef ? "" : ssd->sesslist.sessions[i]);
@@ -856,14 +856,14 @@ static void sessionsaver_handler(dlgcontrol *ctrl, dlgparam *dlg,
                 dlg_end(dlg, 1);       /* it's all over, and succeeded */
             }
         } else if (ctrl == ssd->savebutton) {
-            bool isdef = !strcmp(ssd->savedsession, "Default Settings");
+            bool isdef = !strcmp(ssd->savedsession, DEFAULT_SESSION_NAME);
             if (!ssd->savedsession[0]) {
                 int i = dlg_listbox_index(ssd->listbox, dlg);
                 if (i < 0) {
                     dlg_beep(dlg);
                     return;
                 }
-                isdef = !strcmp(ssd->sesslist.sessions[i], "Default Settings");
+                isdef = !strcmp(ssd->sesslist.sessions[i], DEFAULT_SESSION_NAME);
                 sfree(ssd->savedsession);
                 ssd->savedsession = dupstr(isdef ? "" :
                                            ssd->sesslist.sessions[i]);

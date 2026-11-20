@@ -5,7 +5,11 @@
 #ifndef PUTTY_RCSTUFF_H
 #define PUTTY_RCSTUFF_H
 
+#if defined(WIN32S_COMPAT)
+#include "w32sconfig.h"
+#else
 #include "ntconfig.h"
+#endif
 
 #include <windows.h>
 

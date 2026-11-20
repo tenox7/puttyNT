@@ -8,6 +8,11 @@
 
 HMODULE load_system32_dll(const char *libname)
 {
+#ifdef WIN32S_COMPAT
+    /* Win32s has no system32 directory; just load the library by
+     * name and let the loader find it. */
+    return LoadLibrary(libname);
+#else
     char *fullpath;
     HMODULE ret;
 
@@ -15,4 +20,5 @@ HMODULE load_system32_dll(const char *libname)
     ret = LoadLibrary(fullpath);
     sfree(fullpath);
     return ret;
+#endif
 }

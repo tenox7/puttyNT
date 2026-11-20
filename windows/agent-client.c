@@ -54,6 +54,8 @@ static void wm_copydata_agent_query(strbuf *query, void **out, int *outlen)
      * back to the owning user's unprivileged Pageant.
      */
     psa = NULL;
+#ifndef WIN32S_COMPAT
+    /* Win32s has no security descriptors: skip this */
     usersid = get_user_sid();
     if (usersid) {
         psd = (PSECURITY_DESCRIPTOR)
@@ -72,6 +74,7 @@ static void wm_copydata_agent_query(strbuf *query, void **out, int *outlen)
             }
         }
     }
+#endif /* !WIN32S_COMPAT */
 
     filemap = CreateFileMapping(INVALID_HANDLE_VALUE, psa, PAGE_READWRITE,
                                 0, AGENT_MAX_MSGLEN, mapname);

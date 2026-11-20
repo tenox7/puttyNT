@@ -11,6 +11,11 @@
 int message_box(HWND owner, LPCTSTR text, LPCTSTR caption, DWORD style,
                 bool utf8, DWORD helpctxid)
 {
+#ifdef WIN32S_COMPAT
+    /* Win32s dialogs are ANSI; the wide-string conversion above is
+     * not reliable on that platform. */
+    return MessageBoxA(owner, text, caption, style);
+#else
     wchar_t *wtext;
     wchar_t *wcaption;
     int toret;
@@ -29,4 +34,5 @@ int message_box(HWND owner, LPCTSTR text, LPCTSTR caption, DWORD style,
     sfree(wcaption);
 
     return toret;
+#endif
 }

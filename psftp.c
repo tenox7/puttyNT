@@ -2208,13 +2208,15 @@ static void scp_shell_quote_glob(char *out, size_t outsz, const char *s)
             if (in_quote) { *p++ = '\''; in_quote = false; }
             *p++ = *s;
         } else if (*s == '\'') {
-            /* Worst case: close the current quote (1), emit the
-             * escaped quote (4), close the new quote (1) and the NUL
-             * (1). Do not write past the buffer. */
-            if (p + (in_quote ? 7 : 6) > out + outsz) break;
-            if (in_quote) { *p++ = '\''; in_quote = false; }
-            *p++ = '\''; *p++ = '\\'; *p++ = '\''; *p++ = '\'';
-            in_quote = true;
+            /* Inside quotes: '\'' closes the quote, escapes the
+             * apostrophe and reopens it. Outside quotes: \' is enough.
+             * Leave in_quote unchanged in both cases. */
+            if (p + 6 > out + outsz) break;
+            if (in_quote) {
+                *p++ = '\''; *p++ = '\\'; *p++ = '\''; *p++ = '\'';
+            } else {
+                *p++ = '\\'; *p++ = '\'';
+            }
         } else {
             if (!in_quote) { *p++ = '\''; in_quote = true; }
             *p++ = *s;
